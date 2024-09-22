@@ -48,7 +48,11 @@ BILLS_TO_IGNORE = {
     "S.Res.745",
 }
 
-async def scrape() -> str:
+async def scrape() -> str: 
+    """
+    intitializes a chromium browser instance to scrape the congress.gov/search URL 
+    
+    """
     print("starting scrape...")
     async with async_playwright() as p:
         browser = await p.chromium.launch()
@@ -69,7 +73,7 @@ async def scrape() -> str:
             "#facetItemsubjectArmed_Forces_and_National_Security"
         ).click()
 
-        sleep(2)
+        sleep(2) # call sleep to wait for results to render
         await page.evaluate("window.scrollTo({top:0, behavior:'instant'})")
         await page.screenshot(path ='playwright_result.png')
 
@@ -82,12 +86,18 @@ async def scrape() -> str:
     return html
   
 def parse(html: str):
+    """
+    accepts an html document sting and returns a formatted list of search results
+    """
     print("parsing html...")
     soup = BeautifulSoup(html, "html.parser")
     search_results = soup.select("ol.basic-search-results-lists li.expanded")
     return parse_search_results(search_results)
   
 def parse_search_results(search_results: ResultSet[Tag]) -> list[dict]:
+    """
+    parses each search result element and saves the data in a list of dictionaries
+    """
     parsed_results = []
 
     for item in search_results:
@@ -133,13 +143,22 @@ def write_json(file, data):
         f.write(json.dumps(data, indent=2))
         
 def remove_suffixes(s: str) -> str:
+    """
+    accepts a congress number with a suffix but returns just the number
+    """
     return s.removesuffix("st").removesuffix("nd").removesuffix("rd").removesuffix("th")
   
 def get_bill_text_api_url(congress: str, bill_type: str, bill_no: str) -> str:
+    """
+    generates congress API URL from the congress, bill type, and bill number to get URLs of the bill text
+    """
     return f"{CONGRESS_API_URL}/{congress}/{bill_type}/{bill_no}/text"
 
 
 def progress(i, total, length=40):
+    """
+    renders a progess bar in the terminal while performing the keyword search
+    """
     percent = ("{0:.1f}").format(100 * (i / float(total)))
     filled_length = int(length * i // total)
     bar = "=" * filled_length + "-" * (length - filled_length)
@@ -148,11 +167,17 @@ def progress(i, total, length=40):
     sys.stdout.flush()
     
 def get_pdf(pdf_url: str) -> io.BytesIO:
+    """
+    fetches PDF from Congress API and returns it as a byte stream
+    """
     response = requests.get(pdf_url, timeout=20)
     return io.BytesIO(response.content)
 
 
 def get_pdf_url(api_url: str):
+    """
+    returns the URL of the most recent bill PDF 
+    """
     if not CONGRESS_API_KEY:
         raise Exception("congress API key not found")
     response = requests.get(api_url, params={"api_key": CONGRESS_API_KEY}, timeout=20)
@@ -164,6 +189,9 @@ def get_pdf_url(api_url: str):
 
 
 def count_keyword(keyword: str, pdf_bytes_stream: io.BytesIO) -> int:
+    """
+    accepts PDF byte stream and a keyword and counts the number of occurences of the keyword in the PDF
+    """
     reader = pypdf.PdfReader(pdf_bytes_stream)
     keyword_count = 0
 
@@ -176,6 +204,9 @@ def count_keyword(keyword: str, pdf_bytes_stream: io.BytesIO) -> int:
   
   
 def keyword_search(keyword: str, data: list[dict]) -> list[dict]:
+    """
+    performes a keyword search for each result of the congress.gov search
+    """
     results = []
     num_results = len(data)
 
@@ -198,6 +229,9 @@ def keyword_search(keyword: str, data: list[dict]) -> list[dict]:
   
   
 async def main():
+    """
+    entrypoint
+    """
     results = parse(await scrape())
     write_json("search_results.json", results)
 
