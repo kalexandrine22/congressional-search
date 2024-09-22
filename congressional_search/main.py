@@ -60,7 +60,7 @@ async def scrape() -> str:
 
         sleep(2)
         await page.evaluate("window.scrollTo({top:0, behavior:'instant'})")
-        await page.screenshot(path ='wha.png')
+        await page.screenshot(path ='playwright_result.png')
 
         html = await page.content()
 
