@@ -1,13 +1,24 @@
 import os
 import json
+import io
+import re
+import sys
 from asyncio import run
 from time import sleep
-from playwright.async_api import async_playwright
+
+import pypdf
+import requests
+from dotenv import load_dotenv
 from bs4 import BeautifulSoup, ResultSet, Tag
+from playwright.async_api import async_playwright
+
+load_dotenv()
+
 
 OUTDIR = os.path.join(os.path.dirname(os.getcwd()), "analysis")
 SEARCH_KEYWORD = "arctic"
 CONGRESS_API_URL = "https://api.congress.gov/v3/bill"
+CONGRESS_API_KEY = os.environ.get("CONGRESS_API_KEY", None)
 CONGRESS_GOV_HOME_URL = "https://www.congress.gov"
 CONGRESS_GOV_SEARCH_URL = f"{CONGRESS_GOV_HOME_URL}/search"
 USER_AGENT = " ".join(
@@ -127,9 +138,71 @@ def remove_suffixes(s: str) -> str:
 def get_bill_text_api_url(congress: str, bill_type: str, bill_no: str) -> str:
     return f"{CONGRESS_API_URL}/{congress}/{bill_type}/{bill_no}/text"
 
+
+def progress(i, total, length=40):
+    percent = ("{0:.1f}").format(100 * (i / float(total)))
+    filled_length = int(length * i // total)
+    bar = "=" * filled_length + "-" * (length - filled_length)
+
+    sys.stdout.write(f"\r[{bar}] {percent}% Complete")
+    sys.stdout.flush()
+    
+def get_pdf(pdf_url: str) -> io.BytesIO:
+    response = requests.get(pdf_url, timeout=20)
+    return io.BytesIO(response.content)
+
+
+def get_pdf_url(api_url: str):
+    if not CONGRESS_API_KEY:
+        raise Exception("congress API key not found")
+    response = requests.get(api_url, params={"api_key": CONGRESS_API_KEY}, timeout=20)
+    res_json = response.json()
+    latest_version = res_json["textVersions"][-1]
+    formats = latest_version["formats"]
+    pdf_url = next((fmt["url"] for fmt in formats if fmt["type"] == "PDF"), None)
+    return pdf_url
+
+
+def count_keyword(keyword: str, pdf_bytes_stream: io.BytesIO) -> int:
+    reader = pypdf.PdfReader(pdf_bytes_stream)
+    keyword_count = 0
+
+    for page in reader.pages:
+        text = page.extract_text(0)
+        matches = re.findall(r"\b" + re.escape(keyword) + r"\b", text, re.IGNORECASE)
+        keyword_count += len(matches)
+
+    return keyword_count
+  
+  
+def keyword_search(keyword: str, data: list[dict]) -> list[dict]:
+    results = []
+    num_results = len(data)
+
+    print("results found:", num_results)
+    print(f"searching pdfs for keyword '{keyword}'")
+
+    for index, item in enumerate(data):
+        progress(index + 1, num_results)
+        bill_text_api_url = item["bill_text_api_url"]
+        congress = " ".join([item["congress_no"], item["congress_year"]])
+
+        pdf_url = get_pdf_url(bill_text_api_url)
+        pdf_bytes_stream = get_pdf(pdf_url)
+        keyword_count = count_keyword(keyword, pdf_bytes_stream)
+
+        results.append({"congress": congress, f"{keyword}_count": keyword_count})
+
+    print("\nsearch complete!")
+    return results
+  
+  
 async def main():
     results = parse(await scrape())
     write_json("search_results.json", results)
+
+    keyword_search_results = keyword_search(SEARCH_KEYWORD, results)
+    write_json("keyword_search_results.json", keyword_search_results)
     
 
     
